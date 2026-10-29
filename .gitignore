@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+resultados_2d/
+.pytest_cache/

@@ -36,6 +36,7 @@ def parser():
     p.add_argument('--dt-max',type=float,default=.5)
     p.add_argument('--dt-min',type=float,default=1e-8)
     p.add_argument('--rtol',type=float,default=None,help='erro temporal relativo; padrão 0.002, smoke 0.05')
+    p.add_argument('--profile-times',type=float,nargs='+',help='instantes dos perfis em segundos; padrão: início, 25%, 50%, fim do OCP e fim da varredura')
     p.add_argument('--output',type=Path)
     p.add_argument('--resume',type=Path,help='checkpoint.npz; reutiliza a configuração salva')
     p.add_argument('--density-fe',type=float,default=None,help='d rho/d C_Fe, kg/mol, requer valor medido/justificado')
@@ -45,46 +46,39 @@ def parser():
 
 
 def output_snapshot(folder, model, state, phase_index, phase_start, anchor, dt):
-    esp,c,phi,s2,s3,E,h = model.details(state.x)
     temporary = folder/'checkpoint.tmp.npz'
     fluid_vector=np.array([]) if state.fluid is None else state.fluid.vector().get_local()
     np.savez_compressed(temporary,x=state.x,time=state.time,exchange=state.exchange,
                         initial_delta=model.initial_delta,phase_index=phase_index,
                         phase_start=phase_start,anchor=anchor,dt=dt,fluid=fluid_vector)
     os.replace(temporary,folder/'checkpoint.npz')
-    np.savez_compressed(folder/'fields.npz',x=model.g.x,y=model.g.y,
-                        pH=esp.pH.reshape(model.g.shape),phi=phi,
-                        concentrations=c.reshape((7,*model.g.shape)),
-                        FeOH2=s2.reshape(model.g.shape),FeOH3=s3.reshape(model.g.shape))
+    np.savez_compressed(folder/'fields.npz',**field_arrays(model,state,phase_index))
 
 
-def plots(folder, grid):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    data = np.genfromtxt(folder/'history.csv',delimiter=',',names=True)
-    data = np.atleast_1d(data)
-    if not len(data):
-        return
-    fig,ax=plt.subplots()
-    ax.plot(data['time_s'],1000*data['E_SHE_V'])
-    ax.set(xlabel='Tempo (s)',ylabel='Potencial vs SHE (mV)')
-    fig.savefig(folder/'potencial.png',dpi=160); plt.close(fig)
-    scan = data[data['phase'] == 2]
-    if len(scan):
-        fig,ax=plt.subplots()
-        ax.plot(scan['j_total_A_m2'],1000*scan['E_SHE_V'])
-        ax.set_xscale('symlog',linthresh=1e-8)
-        ax.set(xlabel='Densidade de corrente assinada (A/m²)',ylabel='Potencial vs SHE (mV)')
-        fig.savefig(folder/'polarizacao.png',dpi=160); plt.close(fig)
-    fields = np.load(folder/'fields.npz')
-    fig,ax=plt.subplots()
-    im=ax.pcolormesh(grid.xf,grid.yf,fields['pH'],shading='flat')
-    fig.colorbar(im,ax=ax,label='pH de atividade'); ax.set(xlabel='x (m)',ylabel='y (m)')
-    fig.savefig(folder/'mapa_pH.png',dpi=160); plt.close(fig)
-    mid=grid.ny//2
-    np.savetxt(folder/'perfil.csv',np.column_stack((grid.x,fields['pH'][mid],fields['concentrations'][1,mid])),
-               delimiter=',',header='x_m,pH,C_O2_mol_m3',comments='')
+def field_arrays(model,state,phase):
+    esp,c,phi,s2,s3,E,h=model.details(state.x)
+    names=list(esp.c)
+    return dict(x=model.g.x,y=model.g.y,xf=model.g.xf,yf=model.g.yf,
+                time_s=state.time,phase=phase,E_SHE_V=E,
+                pH=esp.pH.reshape(model.g.shape),phi=phi,
+                concentrations=c.reshape((7,*model.g.shape)),
+                species_names=np.array(names),
+                species_concentrations=np.array([esp.c[name].reshape(model.g.shape) for name in names]),
+                FeOH2=s2.reshape(model.g.shape),FeOH3=s3.reshape(model.g.shape))
+
+
+def save_profiles(folder,model,state,phase,times):
+    directory=folder/'snapshots'
+    directory.mkdir(exist_ok=True)
+    tol=1e-12*max(1.,state.time)
+    for index,time in enumerate(times):
+        if abs(state.time-time) <= tol:
+            np.savez_compressed(directory/f'estado_{index:04d}.npz',**field_arrays(model,state,phase))
+
+
+def plots(folder,grid):
+    from graficos import gerar_graficos
+    return gerar_graficos(folder,grid)
 
 
 def run(args):
@@ -114,6 +108,12 @@ def run(args):
         raise ValueError('Tempos, amplitudes e tolerâncias devem ser positivos')
     if args.dt_min > args.dt or args.dt > args.dt_max:
         raise ValueError('Exige dt_min <= dt <= dt_max')
+    total_time=args.ocp+args.conditioning+2*args.span/args.scan_rate
+    if args.profile_times is None:
+        args.profile_times=[0.,.25*args.ocp,.5*args.ocp,args.ocp,total_time]
+    if any(not np.isfinite(t) or t<0 or t>total_time for t in args.profile_times):
+        raise ValueError('Instantes dos perfis devem estar entre zero e o fim da simulação')
+    args.profile_times=sorted(set([0.,*args.profile_times,total_time]))
     grid = Malha(args.nx,args.ny,grading=args.grading)
     flow = None
     if args.density_fe is not None or args.density_na is not None:
@@ -157,6 +157,7 @@ def run(args):
             'pH_min','pH_max','Fe_balance_mol_m','N_balance_mol_m','C_balance_mol_m','Na_balance_mol_m',
             'scaled_residual','temporal_error','Re','density_ratio']
     success=False
+    save_profiles(folder,model,state,pi,args.profile_times)
     with open(folder/'history.csv','a' if args.resume else 'w',newline='') as history:
         writer=csv.writer(history)
         if not args.resume: writer.writerow(header)
@@ -168,7 +169,8 @@ def run(args):
                     start=end; pi+=1
                     output_snapshot(folder,model,state,pi,start,anchor,dt)
                     continue
-                used=min(dt,end-state.time)
+                next_profile=next((t for t in args.profile_times if t>state.time+1e-13*max(1.,state.time)),end)
+                used=min(dt,end-state.time,next_profile-state.time)
                 def target(t):
                     if pi == 0: return None
                     if pi == 1: return anchor-args.span*(t-start)/durations[1]
@@ -189,6 +191,7 @@ def run(args):
                 # Log average fluxes over BOTH accepted half steps, not recalculated state currents.
                 di,df=mid.info,fine.info
                 state=fine
+                save_profiles(folder,model,state,pi,args.profile_times)
                 esp,_,_,_,_,E,_=model.details(state.x)
                 inv=model.inventory(state)
                 expected=np.array([state.exchange[0]+state.exchange[7],state.exchange[8],state.exchange[2],state.exchange[3]])

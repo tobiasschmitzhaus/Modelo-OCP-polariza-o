@@ -46,3 +46,15 @@ sessão estão em `/workspace/ocp-environment/validation` e `results`.
 A malha da demonstração é deliberadamente pequena e aciona um aviso de resolução.
 Aprovar os testes não determina que a malha padrão resolve a camada difusiva ou
 que as constantes empíricas predizem o sistema experimental do usuário.
+
+## Ampliação dos gráficos e execução pelo navegador
+
+Foram adicionados três testes de gráficos com dados conhecidos: log de correntes
+negativas/zero, interpolação de perfil na meia altura e correspondência entre
+CSV/figuras e campos salvos. Os três testes de workflow foram reexecutados
+para incluir perfis nos instantes 0, 0,0005, 0,001, 0,002 e 0,006 s, saída
+gráfica, retomada e equivalência MPI. Todos passaram. A demonstração real gerou
+14 PNG e uma galeria HTML. O comando de regeneração das figuras lê os dados
+salvos sem repetir o cálculo. O workflow manual de GitHub Actions foi
+verificado quanto à sintaxe YAML; uma execução no serviço GitHub Actions
+não foi iniciada nesta sessão.

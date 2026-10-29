@@ -5,6 +5,20 @@ especiação, precipitados e dupla camada. **Os parâmetros cinéticos herdados 
 foram validados experimentalmente.** A correção dos balanços altera as curvas;
 resultados antigos não devem ser usados como referência de precisão.
 
+## Primeira vez? Rodar e visualizar pelo navegador
+
+Leia o [guia passo a passo para GitHub Actions, nuvem e VS Code](docs/COMO_RODAR.md).
+A aba **Actions → Executar simulador e gerar graficos → Run workflow** permite
+executar o teste pelo navegador e baixar um ZIP com PNG, CSV e uma galeria HTML.
+A página comum do GitHub não executa Python; o workflow manual faz esse trabalho.
+
+As saídas agora incluem **OCP vs. tempo, log10(|j|) vs. E, E vs. log10(|j|),
+correntes vs. tempo, perfis de concentração em vários instantes, perfis de
+especiação e mapas 2D de pH, potencial, concentrações e sólidos**. Abra o
+`index.html` da pasta de resultados para navegar pelas figuras. Dados brutos
+permanecem disponíveis em CSV/NPZ, e `graficos.py` permite refazer os gráficos
+sem resolver o modelo novamente.
+
 ## Executar no ambiente preparado
 
 ```sh

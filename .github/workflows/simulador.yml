@@ -1,0 +1,55 @@
+name: Executar simulador e gerar graficos
+
+on:
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: 'Teste curto ou simulação (a simulação pode levar muitas horas)'
+        required: true
+        type: choice
+        options:
+          - teste
+          - simulacao
+        default: teste
+      ocp_seconds:
+        description: 'Tempo de OCP em segundos (usado somente em simulacao)'
+        required: true
+        type: string
+        default: '3600'
+
+permissions:
+  contents: read
+
+jobs:
+  executar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar bibliotecas na imagem Docker
+        run: docker build -t ocp-fenics .
+      - name: Executar e salvar resultados
+        env:
+          SIM_MODE: ${{ inputs.modo }}
+          OCP_SECONDS: ${{ inputs.ocp_seconds }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p resultados_2d
+          options=(--smoke)
+          if [ "$SIM_MODE" = "simulacao" ]; then
+            options=(--ocp "$OCP_SECONDS")
+          fi
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$GITHUB_WORKSPACE:/project:ro" \
+            -v "$GITHUB_WORKSPACE/resultados_2d:/results" \
+            -w /results ocp-fenics python3 /project/main_2d.py \
+            "${options[@]}" --output /results/execucao
+      - name: Disponibilizar imagens, CSV e checkpoint para download
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-${{ github.run_number }}
+          path: resultados_2d/
+          if-no-files-found: warn
+          retention-days: 14

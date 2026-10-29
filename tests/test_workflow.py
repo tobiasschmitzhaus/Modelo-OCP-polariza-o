@@ -38,8 +38,13 @@ class Workflow(unittest.TestCase):
         self.assertLess(np.max(data['temporal_error']),1.)
         for key in ('Fe_balance_mol_m','N_balance_mol_m','C_balance_mol_m','Na_balance_mol_m'):
             self.assertLess(np.max(np.abs(data[key])),1e-9)
-        for filename in ('checkpoint.npz','polarizacao.png','mapa_pH.png','perfil.csv'):
+        for filename in ('checkpoint.npz','polarizacao.png','mapa_pH.png','perfil.csv',
+                         'ocp_vs_tempo.png','log_i_vs_E.png','perfis_concentracao.png','perfis_especies.png','graficos.json'):
             self.assertGreater((folder/filename).stat().st_size,0)
+        times=[]
+        for path in sorted((folder/'snapshots').glob('*.npz')):
+            with np.load(path) as fields: times.append(float(fields['time_s']))
+        np.testing.assert_allclose(times,[0.,.0005,.001,.002,.006],atol=1e-12)
 
     def test_mpi_matches_serial(self):
         out=self.base/'mpi'
